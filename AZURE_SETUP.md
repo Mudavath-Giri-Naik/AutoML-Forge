@@ -16,11 +16,18 @@ pass if you'd rather not come back to this later.
     - Just the **account URL** (`https://<account>.blob.core.windows.net`) if you'd rather authenticate via `az login` / managed identity (`AZURE_STORAGE_ACCOUNT_URL`) — no secret to store
   - Put whichever you choose into `backend/.env`
 
-## Needed starting Phase 2 (AutoML training)
+## Needed starting Phase 2 (AutoML training) — required now
 
-- [ ] **Azure Machine Learning workspace** (this auto-creates a Key Vault, a second storage account, and Application Insights alongside it — that's normal)
-- [ ] Confirm **serverless compute** is available in your subscription/region for AutoML jobs (no cluster to create ahead of time — the SDK provisions it per-job)
-- [ ] An **Azure AD service principal** (or use `az login` locally) with **Contributor** access scoped to the resource group, so the backend can submit AutoML jobs on your behalf
+- [ ] **Azure Machine Learning workspace** (this auto-creates a Key Vault, a second storage account, and Application Insights alongside it — that's normal). Can live in the same resource group as the Phase 1 storage account.
+- [ ] Confirm **serverless compute** is available in your subscription/region for AutoML jobs (no cluster to create ahead of time — the SDK provisions it per-job by omitting `compute` and setting `resources` on the job)
+- [ ] Locally: run `az login` once (the backend authenticates via `DefaultAzureCredential`, which picks up your CLI session — no secret to store). In production this becomes a managed identity on the Container App (Phase 4), still no secret.
+- [ ] Your Azure AD identity (or the managed identity used later) needs at least **Contributor** on the resource group so it can submit jobs and read run/model data.
+- [ ] Put these three values in `backend/.env` — nothing else is needed to start training:
+  ```
+  AZURE_ML_SUBSCRIPTION_ID=<your subscription id>
+  AZURE_ML_RESOURCE_GROUP=<your resource group>
+  AZURE_ML_WORKSPACE_NAME=<your AML workspace name>
+  ```
 
 ## Needed starting Phase 3 (plain-English summary)
 

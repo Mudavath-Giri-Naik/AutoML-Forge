@@ -4,22 +4,30 @@ import StepIndicator from "../components/StepIndicator";
 import DatasetPicker from "../components/DatasetPicker";
 import SchemaReview from "../components/SchemaReview";
 import HealthCheckReport from "../components/HealthCheckReport";
+import TrainingStatus from "../components/TrainingStatus";
 import { validateDataset } from "../api/datasets";
+import { submitTrainingJob } from "../api/training";
 import { getErrorMessage } from "../api/client";
 
 export default function UploadFlowPage() {
   const [step, setStep] = useState(1);
   const [metadata, setMetadata] = useState(null);
+  const [selection, setSelection] = useState(null);
   const [report, setReport] = useState(null);
   const [validating, setValidating] = useState(false);
   const [validateError, setValidateError] = useState(null);
+
+  const [submittingJob, setSubmittingJob] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const [job, setJob] = useState(null);
 
   const handleDatasetReady = (meta) => {
     setMetadata(meta);
     setStep(2);
   };
 
-  const handleSchemaConfirm = async ({ targetColumn, taskType }) => {
+  const handleSchemaConfirm = async ({ targetColumn, taskType, timeColumn }) => {
+    setSelection({ targetColumn, taskType, timeColumn });
     setValidating(true);
     setValidateError(null);
     try {
@@ -33,11 +41,35 @@ export default function UploadFlowPage() {
     }
   };
 
+  const handleStartTraining = async ({ primaryMetric, forecastHorizon }) => {
+    setSubmittingJob(true);
+    setSubmitError(null);
+    try {
+      const submitted = await submitTrainingJob({
+        datasetId: metadata.dataset_id,
+        taskType: selection.taskType,
+        targetColumn: selection.targetColumn,
+        timeColumn: selection.timeColumn,
+        forecastHorizon: selection.taskType === "forecasting" ? forecastHorizon : null,
+        primaryMetric,
+      });
+      setJob(submitted);
+      setStep(4);
+    } catch (err) {
+      setSubmitError(getErrorMessage(err, "Could not submit the training job."));
+    } finally {
+      setSubmittingJob(false);
+    }
+  };
+
   const restart = () => {
     setStep(1);
     setMetadata(null);
+    setSelection(null);
     setReport(null);
     setValidateError(null);
+    setSubmitError(null);
+    setJob(null);
   };
 
   return (
@@ -72,12 +104,15 @@ export default function UploadFlowPage() {
       {step === 3 && report && (
         <HealthCheckReport
           report={report}
+          timeColumn={selection?.timeColumn}
           onBack={() => setStep(2)}
-          onContinue={() => {
-            /* Phase 2 will wire this up to AutoML job submission */
-          }}
+          onStartTraining={handleStartTraining}
+          submitting={submittingJob}
+          submitError={submitError}
         />
       )}
+
+      {step === 4 && job && <TrainingStatus initialJob={job} onRestart={restart} />}
     </div>
   );
 }

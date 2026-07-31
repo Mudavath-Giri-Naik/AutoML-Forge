@@ -1,4 +1,5 @@
-import { AlertTriangle, ArrowLeft, CheckCircle2, Info, XCircle } from "lucide-react";
+import { useState } from "react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Flame, Info, Loader2, XCircle } from "lucide-react";
 import { SeverityBadge } from "./Badge";
 
 const OVERALL_COPY = {
@@ -8,6 +9,33 @@ const OVERALL_COPY = {
 };
 
 const SEVERITY_ICON = { critical: XCircle, warning: AlertTriangle, info: Info };
+
+const PRIMARY_METRIC_OPTIONS = {
+  classification: [
+    { value: "accuracy", label: "Accuracy" },
+    { value: "AUC_weighted", label: "AUC (weighted)" },
+    { value: "average_precision_score_weighted", label: "Average precision (weighted)" },
+    { value: "norm_macro_recall", label: "Normalized macro recall" },
+    { value: "precision_score_weighted", label: "Precision (weighted)" },
+  ],
+  regression: [
+    { value: "normalized_root_mean_squared_error", label: "Normalized RMSE" },
+    { value: "r2_score", label: "R² score" },
+    { value: "normalized_mean_absolute_error", label: "Normalized MAE" },
+    { value: "spearman_correlation", label: "Spearman correlation" },
+  ],
+  forecasting: [
+    { value: "normalized_root_mean_squared_error", label: "Normalized RMSE" },
+    { value: "r2_score", label: "R² score" },
+    { value: "normalized_mean_absolute_error", label: "Normalized MAE" },
+  ],
+};
+
+const DEFAULT_PRIMARY_METRIC = {
+  classification: "accuracy",
+  regression: "normalized_root_mean_squared_error",
+  forecasting: "normalized_root_mean_squared_error",
+};
 
 function CheckDetails({ details }) {
   if (!details || details.length === 0) return null;
@@ -57,9 +85,15 @@ function CheckDetails({ details }) {
   );
 }
 
-export default function HealthCheckReport({ report, onBack, onContinue }) {
+export default function HealthCheckReport({ report, timeColumn, onBack, onStartTraining, submitting, submitError }) {
   const overall = OVERALL_COPY[report.overall_status] || OVERALL_COPY.healthy;
   const OverallIcon = overall.icon;
+  const taskType = report.task_type;
+
+  const [primaryMetric, setPrimaryMetric] = useState(DEFAULT_PRIMARY_METRIC[taskType] || "accuracy");
+  const [forecastHorizon, setForecastHorizon] = useState(12);
+
+  const canStart = taskType !== "forecasting" || (Boolean(timeColumn) && forecastHorizon > 0);
 
   return (
     <div className="space-y-6">
@@ -133,20 +167,79 @@ export default function HealthCheckReport({ report, onBack, onContinue }) {
         </div>
       )}
 
+      <div className="rounded-xl border border-forge-800 bg-forge-900 p-4">
+        <p className="mb-3 text-sm font-semibold text-forge-100">Training configuration</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-forge-500">
+              Primary metric
+            </label>
+            <select
+              value={primaryMetric}
+              onChange={(e) => setPrimaryMetric(e.target.value)}
+              className="w-full rounded-lg border border-forge-700 bg-forge-850 px-3 py-2 text-sm text-forge-100 outline-none focus:border-ember-500"
+            >
+              {(PRIMARY_METRIC_OPTIONS[taskType] || []).map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {taskType === "forecasting" && (
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-forge-500">
+                Forecast horizon (periods ahead)
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={forecastHorizon}
+                onChange={(e) => setForecastHorizon(Number(e.target.value))}
+                className="w-full rounded-lg border border-forge-700 bg-forge-850 px-3 py-2 text-sm text-forge-100 outline-none focus:border-ember-500"
+              />
+              {!timeColumn && (
+                <p className="mt-1.5 text-xs text-crit-500">No time column was selected — go back and pick one.</p>
+              )}
+            </div>
+          )}
+        </div>
+        <p className="mt-3 text-xs text-forge-500">
+          AutoML will train and compare classical models on Azure ML serverless compute, capped at 15 minutes.
+        </p>
+      </div>
+
+      {submitError && (
+        <div className="flex items-center gap-2 rounded-lg border border-crit-500/30 bg-crit-500/10 p-3 text-sm text-crit-500">
+          <XCircle size={16} /> {submitError}
+        </div>
+      )}
+
       <div className="flex items-center justify-between pt-2">
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-forge-400 transition hover:text-forge-100"
+          disabled={submitting}
+          className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-forge-400 transition hover:text-forge-100 disabled:opacity-40"
         >
           <ArrowLeft size={16} /> Back
         </button>
         <button
           type="button"
-          onClick={onContinue}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-forge-800 px-5 py-2.5 text-sm font-semibold text-forge-300 ring-1 ring-forge-700 transition hover:bg-forge-700"
+          onClick={() => onStartTraining({ primaryMetric, forecastHorizon })}
+          disabled={!canStart || submitting}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-ember-500 px-5 py-2.5 text-sm font-semibold text-forge-950 transition hover:bg-ember-400 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Continue to training — coming in Phase 2
+          {submitting ? (
+            <>
+              <Loader2 size={16} className="animate-spin" /> Submitting job…
+            </>
+          ) : (
+            <>
+              <Flame size={16} /> Start training
+            </>
+          )}
         </button>
       </div>
     </div>

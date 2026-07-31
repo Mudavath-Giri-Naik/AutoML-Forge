@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     # --- Upload guardrails ---
     max_upload_size_mb: int = 10
 
+    # --- Azure ML workspace (required for /api/training and /api/predict) ---
+    azure_ml_subscription_id: Optional[str] = None
+    azure_ml_resource_group: Optional[str] = None
+    azure_ml_workspace_name: Optional[str] = None
+
+    # --- AutoML job limits (cost/time guardrails) ---
+    training_job_timeout_minutes: int = 15
+    training_trial_timeout_minutes: int = 5
+    training_max_trials: int = 20
+    training_serverless_instance_type: str = "Standard_DS3_v2"
+
     # --- CORS ---
     cors_origins: str = "http://localhost:5173"
 

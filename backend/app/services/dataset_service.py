@@ -100,6 +100,14 @@ def get_dataset_dataframe(dataset_id: str) -> pd.DataFrame:
     return pd.read_csv(io.BytesIO(raw))
 
 
+def get_dataset_raw_bytes(dataset_id: str) -> bytes:
+    storage = get_storage()
+    try:
+        return storage.load_bytes(_data_path(dataset_id))
+    except FileNotFoundError:
+        raise DatasetError(f"Dataset '{dataset_id}' was not found.") from None
+
+
 def list_demo_datasets() -> list[dict]:
     return [
         {

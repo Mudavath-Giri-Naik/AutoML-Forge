@@ -8,10 +8,12 @@ Built as a live portfolio project. Fully anonymous (no accounts), classical
 ML only (no deep learning), cost-conscious by design (serverless/consumption
 compute throughout).
 
-**Status: Phase 1 of 4 complete** — dataset upload, schema auto-detection,
-and the pre-training data health check. See [`PRD_AutoML_Platform.md`](PRD_AutoML_Platform.md)
-for the full spec and [`AZURE_SETUP.md`](AZURE_SETUP.md) for the resource
-provisioning checklist.
+**Status: Phase 2 of 4 complete** — dataset upload, schema auto-detection,
+data health check, and real AutoML training (classification, regression,
+forecasting) on Azure ML serverless compute, with job status polling, a
+leaderboard, and a live prediction endpoint. See
+[`PRD_AutoML_Platform.md`](PRD_AutoML_Platform.md) for the full spec and
+[`AZURE_SETUP.md`](AZURE_SETUP.md) for the resource provisioning checklist.
 
 ## Tech stack
 
@@ -50,7 +52,27 @@ uvicorn app.main:app --reload --port 8000
 
 Backend runs at http://localhost:8000 (interactive API docs at `/docs`).
 With `STORAGE_BACKEND=local` (the default), datasets are stored under
-`backend/storage_data/` on disk — no Azure account required for local dev.
+`backend/storage_data/` on disk — no Azure account required for dataset
+upload/schema/health-check.
+
+**Training requires an Azure ML workspace.** Without one, dataset upload and
+the health check work fully locally, but `/api/training/*` and
+`/api/predict/*` return a clear 503 telling you what's missing. To enable
+training:
+
+```bash
+az login
+```
+
+Then fill in `backend/.env`:
+
+```
+AZURE_ML_SUBSCRIPTION_ID=<your subscription id>
+AZURE_ML_RESOURCE_GROUP=<your resource group>
+AZURE_ML_WORKSPACE_NAME=<your AML workspace name>
+```
+
+See [`AZURE_SETUP.md`](AZURE_SETUP.md) for how to provision the workspace.
 
 ### Frontend
 
@@ -70,6 +92,12 @@ in `VITE_API_BASE_URL`.
 2. Pick one of the 3 demo datasets (or upload your own CSV)
 3. Review the auto-detected schema, confirm/override the target column and task type
 4. Run the health check and review the findings
+5. Pick a primary metric (and forecast horizon, for forecasting) and start training
+6. Watch the job status poll live, then review the leaderboard once it completes
+
+Step 5–6 need the Azure ML workspace configured above — training jobs are
+capped at 15 minutes and run on serverless compute (nothing left running
+afterward).
 
 ## Demo datasets
 

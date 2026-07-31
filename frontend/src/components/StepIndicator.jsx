@@ -1,6 +1,6 @@
 import { Check } from "lucide-react";
 
-const STEPS = ["Dataset", "Schema", "Health check"];
+const STEPS = ["Dataset", "Schema", "Health check", "Training"];
 
 export default function StepIndicator({ current }) {
   return (

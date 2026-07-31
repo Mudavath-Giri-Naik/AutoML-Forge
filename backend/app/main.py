@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.routers import datasets
+from app.routers import datasets, training
 from app.services.dataset_service import ensure_demo_datasets_seeded
 
 
@@ -27,6 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(datasets.router)
+app.include_router(training.router)
 
 
 @app.get("/api/health")
