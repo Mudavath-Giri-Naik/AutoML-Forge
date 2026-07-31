@@ -1,0 +1,28 @@
+# --- secrets ---
+.env
+.env.local
+*.env
+!.env.example
+
+# --- backend (Python) ---
+backend/.venv/
+backend/storage_data/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# --- frontend (Node) ---
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- editor / OS ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Claude Code local tooling (dev-machine specific, not part of the project) ---
+.claude/
