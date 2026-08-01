@@ -31,10 +31,16 @@ leaderboard, and a live prediction endpoint. See
 ## Monorepo layout
 
 ```
-backend/    FastAPI app, Python 3.12+
+backend/    FastAPI app, Python 3.11
 frontend/   React + Vite + Tailwind SPA
 .github/    CI/CD workflows
 ```
+
+**Why Python 3.11:** it's what's used and verified here. Several Azure
+SDK/ML packages this project touches don't yet ship wheels for very new
+Python releases (3.13+) on Windows, and older `azureml-*` packages cap out
+below 3.12 — 3.11 is the version with the fewest surprises. Use 3.11 for
+the backend venv.
 
 ## Running locally
 

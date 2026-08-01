@@ -9,11 +9,12 @@ database" design in the PRD (state lives entirely in Azure ML).
 from __future__ import annotations
 
 import tempfile
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
+import numpy as np
 
 from app.config import get_settings
 from app.services import dataset_service
@@ -167,6 +168,12 @@ def submit_training_job(
 
         job.experiment_name = "automl-forge"
         job.display_name = f"{task_type}-{dataset_id[:8]}"
+        # Score with onnxruntime instead of unpickling AutoML's native model: the
+        # pickle requires azureml's internal training-runtime classes, which pull in
+        # a huge, fragile, Python-<3.12-only legacy dependency chain (~30 packages,
+        # including a native onnx/protobuf DLL conflict we hit and worked around).
+        # ONNX keeps the serving side to just `onnxruntime`.
+        job.set_training(enable_onnx_compatible_models=True)
         job.set_limits(
             timeout_minutes=settings.training_job_timeout_minutes,
             trial_timeout_minutes=settings.training_trial_timeout_minutes,
@@ -256,13 +263,35 @@ def get_leaderboard(job_id: str) -> dict:
 
     best_run_id = parent_run.data.tags.get("automl_best_child_run_id")
 
-    child_runs = mlflow.search_runs(filter_string=f"tags.mlflow.parentRunId='{job_id}'", output_format="list")
+    # AutoML logs each trial's algorithm on the *parent* run as a single
+    # semicolon-delimited tag ("run_algorithm_000": "LightGBM;XGBoost;...")
+    # indexed by trial number — not as a tag on the child run itself.
+    algorithm_by_index = {}
+    raw_algorithms = parent_run.data.tags.get("run_algorithm_000")
+    if raw_algorithms:
+        algorithm_by_index = dict(enumerate(raw_algorithms.split(";")))
+
+    # Right after a job flips to "completed", the run-history backend can
+    # briefly lag behind for search queries even though get_run already
+    # sees the parent — retry a few times before giving up.
+    child_runs = []
+    for attempt in range(4):
+        child_runs = mlflow.search_runs(
+            experiment_ids=[parent_run.info.experiment_id],
+            filter_string=f"tags.mlflow.parentRunId='{job_id}'",
+            output_format="list",
+        )
+        if child_runs:
+            break
+        if attempt < 3:
+            time.sleep(2)
 
     models = []
     for run in child_runs:
+        suffix = run.info.run_id.rsplit("_", 1)[-1]
+        trial_index = int(suffix) if suffix.isdigit() else None
         algorithm = (
-            run.data.tags.get("run_algorithm")
-            or run.data.params.get("run_algorithm")
+            algorithm_by_index.get(trial_index)
             or run.data.tags.get("mlflow.runName")
             or run.info.run_id
         )
@@ -292,9 +321,46 @@ def get_leaderboard(job_id: str) -> dict:
     }
 
 
+def _find_onnx_model_path(repo) -> str:
+    """Locates the exported model.onnx file in a run's artifacts.
+
+    AutoML runs log it under outputs/model.onnx, but we search rather than hardcode
+    that path so this keeps working if a future run layout differs.
+    """
+    root = repo.list_artifacts("")
+    outputs_dir = next((a for a in root if a.is_dir and a.path.rstrip("/").endswith("outputs")), None)
+    search_scopes = [repo.list_artifacts(outputs_dir.path) if outputs_dir else [], root]
+    for scope in search_scopes:
+        onnx_file = next((a for a in scope if not a.is_dir and a.path.endswith(".onnx")), None)
+        if onnx_file:
+            return onnx_file.path
+    raise TrainingError(
+        "No ONNX model artifact found for this run. The job may have been submitted before "
+        "ONNX export was enabled, or the winning algorithm doesn't support ONNX conversion."
+    )
+
+
+# Maps onnxruntime's tensor element types to numpy dtypes for building input feeds.
+_ONNX_TO_NUMPY_DTYPE = {
+    "tensor(float)": np.float32,
+    "tensor(double)": np.float64,
+    "tensor(int64)": np.int64,
+    "tensor(int32)": np.int32,
+    "tensor(string)": np.str_,
+    "tensor(bool)": np.bool_,
+}
+
+
 @lru_cache(maxsize=3)
 def _load_model(job_id: str):
+    # Scoring with onnxruntime instead of unpickling AutoML's native sklearn model —
+    # see the comment on set_training(enable_onnx_compatible_models=True) in
+    # submit_training_job for why: the pickle path needs Azure's internal training
+    # runtime, which is a huge, fragile, Python-<3.12-only dependency chain.
     import mlflow
+    import onnxruntime
+
+    from azureml.mlflow._store.artifact.artifact_repo import AzureMLflowArtifactRepository
 
     leaderboard = get_leaderboard(job_id)
     best_run_id = leaderboard["best_run_id"]
@@ -302,34 +368,50 @@ def _load_model(job_id: str):
         raise TrainingError(f"No completed best model is available yet for job '{job_id}'.")
 
     mlflow.set_tracking_uri(get_mlflow_tracking_uri())
-    client = mlflow.tracking.MlflowClient()
-    artifacts = client.list_artifacts(best_run_id)
-    model_artifact = next((a for a in artifacts if a.is_dir), None)
-    if model_artifact is None:
-        raise TrainingError(f"Could not locate a model artifact for run '{best_run_id}'.")
+    run = mlflow.get_run(best_run_id)
+    repo = AzureMLflowArtifactRepository(run.info.artifact_uri)
+    onnx_artifact_path = _find_onnx_model_path(repo)
 
     local_dir = MODEL_CACHE_DIR / job_id
     local_dir.mkdir(parents=True, exist_ok=True)
-    model_path = mlflow.artifacts.download_artifacts(
-        run_id=best_run_id, artifact_path=model_artifact.path, dst_path=str(local_dir)
-    )
-    return mlflow.pyfunc.load_model(model_path)
+    model_path = repo.download_artifacts(onnx_artifact_path, dst_path=str(local_dir))
+    return onnxruntime.InferenceSession(model_path)
 
 
 def predict(job_id: str, features: dict) -> dict:
     if not features:
         raise TrainingError("No feature values were provided.")
 
-    model = _load_model(job_id)
-    df = pd.DataFrame([features])
+    session = _load_model(job_id)
+
+    input_feed = {}
+    for input_meta in session.get_inputs():
+        if input_meta.name not in features:
+            raise TrainingError(f"Missing required feature '{input_meta.name}'.")
+        dtype = _ONNX_TO_NUMPY_DTYPE.get(input_meta.type, np.float32)
+        # AutoML's exported graph takes one named tensor per raw feature column,
+        # shaped [batch, 1] or [batch] depending on the run — match whichever the
+        # graph actually declares instead of assuming one.
+        rank = len(input_meta.shape) if input_meta.shape else 1
+        value = [[features[input_meta.name]]] if rank == 2 else [features[input_meta.name]]
+        input_feed[input_meta.name] = np.array(value, dtype=dtype)
 
     try:
-        result = model.predict(df)
+        outputs = session.run(None, input_feed)
     except Exception as exc:
         raise TrainingError(f"Prediction failed: {exc}") from exc
 
-    value = result[0] if hasattr(result, "__getitem__") else result
+    output_names = [o.name for o in session.get_outputs()]
+    label = outputs[0]
+    value = label[0] if hasattr(label, "__getitem__") else label
     if hasattr(value, "item"):
         value = value.item()
 
-    return {"job_id": job_id, "prediction": value}
+    result = {"job_id": job_id, "prediction": value}
+
+    if len(outputs) > 1 and "probabilit" in output_names[1].lower():
+        probabilities = outputs[1][0] if hasattr(outputs[1], "__getitem__") else outputs[1]
+        if isinstance(probabilities, dict):
+            result["probabilities"] = {str(k): float(v) for k, v in probabilities.items()}
+
+    return result
