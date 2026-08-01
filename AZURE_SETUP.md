@@ -37,18 +37,144 @@ pass if you'd rather not come back to this later.
   ```
   Not Azure-related, no other setup needed — this is the only place an LLM is used in the whole app, and only to narrate results, never for predictions.
 
-## Needed starting Phase 4 (deploy)
+## Needed starting Phase 4 (deploy) — required now
 
-- [ ] **Azure Static Web Apps** resource (free tier) for the frontend — connected to your GitHub repo, deploy token goes into a GitHub Actions secret
-- [ ] **Azure Container Apps environment** + **Container App** (Consumption plan) for the backend
-- [ ] **Azure Container Registry** (Basic tier) to hold the backend's Docker image, unless you deploy straight from GitHub Actions
-- [ ] GitHub repo **secrets** for CI/CD: Static Web Apps deploy token, Container Registry credentials (or federated OIDC credentials), and any of the connection strings/keys above that the backend needs at runtime
+You already have `az` installed and logged in, so this is all copy-paste. Uses
+your existing resource group (`automl-forge-rg`) and region (`centralindia`,
+matching your AML workspace) — adjust if yours differ.
+
+### 1. Container Registry (holds the backend's Docker image)
+
+```bash
+az acr create --name automlforgeacr --resource-group automl-forge-rg --sku Basic --admin-enabled false
+```
+
+`automlforgeacr` must be globally unique — if it's taken, pick another name and use it consistently below.
+
+### 2. Container Apps environment + the Container App itself
+
+```bash
+az extension add --name containerapp --upgrade
+
+az containerapp env create --name automl-forge-env --resource-group automl-forge-rg --location centralindia
+
+az containerapp create \
+  --name automl-forge-backend \
+  --resource-group automl-forge-rg \
+  --environment automl-forge-env \
+  --image mcr.microsoft.com/k8se/quickstart:latest \
+  --target-port 8000 \
+  --ingress external \
+  --min-replicas 0 \
+  --max-replicas 2 \
+  --cpu 1.0 --memory 2.0Gi
+```
+
+That placeholder image is just to stand the app up — the first GitHub Actions
+deploy run replaces it with the real backend. `--min-replicas 0` is what
+gives you scale-to-zero.
+
+Grab the backend's public URL for later:
+
+```bash
+az containerapp show --name automl-forge-backend --resource-group automl-forge-rg --query properties.configuration.ingress.fqdn -o tsv
+```
+
+### 3. Let the Container App pull from your registry + reach Azure ML
+
+```bash
+# Give the Container App a managed identity...
+az containerapp identity assign --name automl-forge-backend --resource-group automl-forge-rg --system-assigned
+
+# ...grab that identity's principal id...
+principalId=$(az containerapp show --name automl-forge-backend --resource-group automl-forge-rg --query identity.principalId -o tsv)
+
+# ...and grant it Contributor on the resource group (same permission your
+# own `az login` identity needed to submit AutoML jobs), plus AcrPull so it
+# can pull images without storing registry credentials.
+az role assignment create --assignee "$principalId" --role Contributor --scope /subscriptions/6d78f7be-4ca5-4bfe-b7de-301e08cf3352/resourceGroups/automl-forge-rg
+az role assignment create --assignee "$principalId" --role AcrPull --scope $(az acr show --name automlforgeacr --query id -o tsv)
+
+az containerapp registry set --name automl-forge-backend --resource-group automl-forge-rg --server automlforgeacr.azurecr.io --identity system
+```
+
+### 4. Set the backend's environment variables (mirrors backend/.env)
+
+```bash
+az containerapp update --name automl-forge-backend --resource-group automl-forge-rg --set-env-vars \
+  STORAGE_BACKEND=azure \
+  AZURE_STORAGE_ACCOUNT_URL="https://<your-storage-account>.blob.core.windows.net" \
+  AZURE_BLOB_CONTAINER=datasets \
+  AZURE_ML_SUBSCRIPTION_ID=6d78f7be-4ca5-4bfe-b7de-301e08cf3352 \
+  AZURE_ML_RESOURCE_GROUP=automl-forge-rg \
+  AZURE_ML_WORKSPACE_NAME=automl-forge-ws \
+  CORS_ORIGINS="https://<your-static-web-app-url>.azurestaticapps.net"
+```
+
+`GEMINI_API_KEY` is a real secret (not just an Azure identity), so set it as a
+Container Apps **secret** instead of a plain env var:
+
+```bash
+az containerapp secret set --name automl-forge-backend --resource-group automl-forge-rg --secrets gemini-api-key="<your gemini key>"
+az containerapp update --name automl-forge-backend --resource-group automl-forge-rg --set-env-vars GEMINI_API_KEY=secretref:gemini-api-key
+```
+
+You won't have the real `CORS_ORIGINS` value until step 5 creates the
+Static Web App — come back and update it once you have that URL.
+
+### 5. Static Web App (frontend)
+
+```bash
+az staticwebapp create --name automl-forge-frontend --resource-group automl-forge-rg --location centralus --sku Free
+```
+
+(Static Web Apps isn't available in every region — `centralus` is a safe
+default regardless of where your other resources live.) Grab its URL and
+deployment token:
+
+```bash
+az staticwebapp show --name automl-forge-frontend --resource-group automl-forge-rg --query defaultHostname -o tsv
+az staticwebapp secrets list --name automl-forge-frontend --resource-group automl-forge-rg --query properties.apiKey -o tsv
+```
+
+### 6. Service principal so GitHub Actions can deploy on your behalf
+
+```bash
+az ad sp create-for-rbac --name automl-forge-deploy \
+  --role contributor \
+  --scopes /subscriptions/6d78f7be-4ca5-4bfe-b7de-301e08cf3352/resourceGroups/automl-forge-rg \
+  --sdk-auth
+```
+
+Copy the entire JSON output — that's the `AZURE_CREDENTIALS` secret below.
+
+### 7. Add these as GitHub repo secrets
+
+Repo → Settings → Secrets and variables → Actions → New repository secret:
+
+| Secret | Value |
+|---|---|
+| `AZURE_CREDENTIALS` | the full JSON from step 6 |
+| `ACR_NAME` | `automlforgeacr` (just the name, not the full URL) |
+| `CONTAINER_APP_NAME` | `automl-forge-backend` |
+| `AZURE_RESOURCE_GROUP` | `automl-forge-rg` |
+| `AZURE_STATIC_WEB_APPS_API_TOKEN` | the token from step 5 |
+| `VITE_API_BASE_URL` | `https://<backend fqdn from step 2>` |
+
+### 8. Go live
+
+Push to `main` (or re-run the "Deploy" workflow from the Actions tab). It
+builds the backend image, pushes it to ACR, updates the Container App, and
+deploys the frontend to Static Web Apps — all in one run. Then go back and
+update `CORS_ORIGINS` (step 4) with the real Static Web App URL from step 5
+if you haven't already.
 
 ## Cost notes
 
-- Storage account, Static Web Apps, and light Container Apps traffic: effectively free at this scale
-- AutoML training is the one real recurring cost — capped by the 15-minute job timeout per run
-- Nothing here runs 24/7: Container Apps scales to zero when idle, AutoML compute is serverless and only billed during a job
+- Storage account, Static Web Apps (Free tier), and light Container Apps traffic: effectively free at this scale
+- Container Registry Basic tier: ~$0.17/day flat — the one truly-always-on cost in this list, but it's pennies
+- AutoML training is the real recurring cost — capped by the 15-minute job timeout per run
+- Nothing else here runs 24/7: Container Apps scales to zero when idle (`--min-replicas 0`), AutoML compute is serverless and only billed during a job
 
 None of this needs to be done before Phase 1 review — Phase 1 runs entirely
 on your machine with local disk storage. Provision Azure resources whenever

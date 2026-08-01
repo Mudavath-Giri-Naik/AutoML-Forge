@@ -1,14 +1,15 @@
 """Dataset upload, demo listing, and pre-training validation endpoints."""
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from app.models.schemas import ValidateDatasetRequest
 from app.services import dataset_service
 from app.services.health_check import run_health_check
+from app.services.rate_limiter import enforce_upload_rate_limit
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 
 
-@router.post("/upload")
+@router.post("/upload", dependencies=[Depends(enforce_upload_rate_limit)])
 async def upload_dataset(file: UploadFile = File(...)):
     raw_bytes = await file.read()
     try:

@@ -8,10 +8,12 @@ Built as a live portfolio project. Fully anonymous (no accounts), classical
 ML only (no deep learning), cost-conscious by design (serverless/consumption
 compute throughout).
 
-**Status: Phase 2 of 4 complete** — dataset upload, schema auto-detection,
-data health check, and real AutoML training (classification, regression,
-forecasting) on Azure ML serverless compute, with job status polling, a
-leaderboard, and a live prediction endpoint. See
+**Status: Phase 4 of 4 in progress (deploying)** — the full pipeline works
+end to end against real Azure ML: upload → schema detection → health check
+→ AutoML training (classification, regression, forecasting) → live race
+view → leaderboard → plain-English summary → feature importance → what-if
+predictions → copy-paste API / exported code. Rate limiting and the
+Docker/CI-CD deploy pipeline are in place; going live now. See
 [`PRD_AutoML_Platform.md`](PRD_AutoML_Platform.md) for the full spec and
 [`AZURE_SETUP.md`](AZURE_SETUP.md) for the resource provisioning checklist.
 
@@ -99,11 +101,28 @@ in `VITE_API_BASE_URL`.
 3. Review the auto-detected schema, confirm/override the target column and task type
 4. Run the health check and review the findings
 5. Pick a primary metric (and forecast horizon, for forecasting) and start training
-6. Watch the job status poll live, then review the leaderboard once it completes
+6. Watch the live race view as trials complete, then review the leaderboard,
+   plain-English summary, feature importance, and what-if playground once
+   training finishes
+7. Copy the curl snippet or exported Python script to use the model from
+   your own code
 
-Step 5–6 need the Azure ML workspace configured above — training jobs are
+Step 5–7 need the Azure ML workspace configured above — training jobs are
 capped at 15 minutes and run on serverless compute (nothing left running
-afterward).
+afterward). Step 6's summary needs `GEMINI_API_KEY` set too.
+
+A job's results page is shareable/bookmarkable at `?job=<job_id>` — this is
+an anonymous, stateless app, so the job ID is the only handle you get back
+to a completed run.
+
+## Deploying to production
+
+See [`AZURE_SETUP.md`](AZURE_SETUP.md) for the full checklist (copy-paste
+`az` commands) to provision the Container Registry, Container Apps
+environment, Static Web App, and GitHub Actions secrets. Once those secrets
+are set, `.github/workflows/deploy.yml` builds the backend's Docker image,
+pushes it to ACR, updates the Container App, and deploys the frontend to
+Static Web Apps on every push to `main`.
 
 ## Demo datasets
 

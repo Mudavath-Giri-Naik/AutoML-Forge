@@ -21,6 +21,10 @@ class Settings(BaseSettings):
     # --- Upload guardrails ---
     max_upload_size_mb: int = 10
 
+    # --- Per-IP rate limits (public + anonymous app; abuse/cost protection) ---
+    rate_limit_uploads_per_hour: int = 20
+    rate_limit_training_jobs_per_hour: int = 5
+
     # --- Azure ML workspace (required for /api/training and /api/predict) ---
     azure_ml_subscription_id: Optional[str] = None
     azure_ml_resource_group: Optional[str] = None

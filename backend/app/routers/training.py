@@ -1,10 +1,11 @@
 """AutoML job submission, status/leaderboard, prediction, and results endpoints."""
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
 from app.models.schemas import PredictionRequest, SubmitTrainingJobRequest
 from app.services import dataset_service, llm_service, training_service
 from app.services.aml_client import AzureMLNotConfigured
+from app.services.rate_limiter import enforce_training_rate_limit
 
 router = APIRouter(prefix="/api", tags=["training"])
 
@@ -22,7 +23,7 @@ def _run(fn, *args, **kwargs):
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
-@router.post("/training/jobs")
+@router.post("/training/jobs", dependencies=[Depends(enforce_training_rate_limit)])
 async def submit_training_job(body: SubmitTrainingJobRequest):
     return _run(
         training_service.submit_training_job,
