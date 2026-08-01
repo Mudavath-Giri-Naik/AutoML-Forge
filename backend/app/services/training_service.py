@@ -219,6 +219,63 @@ def submit_training_job(
     }
 
 
+def list_recent_jobs(limit: int = 12) -> list[dict]:
+    """Past jobs submitted through this app, newest first. Reads straight off the
+    Azure ML workspace (no database) — only jobs carrying our own tags are included,
+    which naturally excludes AutoML's per-trial child runs and anything submitted
+    outside this app."""
+    import itertools
+
+    ml_client = get_ml_client()
+    try:
+        # jobs.list() has no server-side "only ours" filter, so pull the workspace's
+        # recent jobs and rely on the automl_forge_* tags (below) to pick out only
+        # jobs this app submitted — everything else (child trial runs, anything
+        # submitted outside the app) gets skipped.
+        jobs_iter = ml_client.jobs.list()
+    except Exception as exc:
+        raise TrainingError(f"Could not list past training jobs: {exc}") from exc
+
+    jobs = []
+    for job in itertools.islice(jobs_iter, 100):
+        tags = job.tags or {}
+        task_type = tags.get(f"{TAG_PREFIX}task_type")
+        if not task_type:
+            continue  # not one of ours (e.g. a child trial run)
+
+        created_at = None
+        try:
+            created_at = job.creation_context.created_at.isoformat()
+        except Exception:
+            pass
+
+        jobs.append(
+            {
+                "job_id": job.name,
+                "display_name": job.display_name,
+                "status": _normalize_status(job.status),
+                "task_type": task_type,
+                "target_column": tags.get(f"{TAG_PREFIX}target_column"),
+                "primary_metric": tags.get(f"{TAG_PREFIX}primary_metric"),
+                "dataset_id": tags.get(f"{TAG_PREFIX}dataset_id") or None,
+                "created_at": created_at,
+            }
+        )
+
+    jobs.sort(key=lambda j: j["created_at"] or "", reverse=True)
+    jobs = jobs[:limit]
+
+    for j in jobs:
+        j["dataset_name"] = None
+        if j["dataset_id"]:
+            try:
+                j["dataset_name"] = dataset_service.get_dataset_metadata(j["dataset_id"]).get("filename")
+            except Exception:
+                pass  # dataset may have been purged from storage; job info is still shown
+
+    return jobs
+
+
 def get_job_status(job_id: str) -> dict:
     ml_client = get_ml_client()
     try:
@@ -483,8 +540,18 @@ def get_explanation(job_id: str, sample_size: int = 60) -> dict:
     sample = sample.sample(n=min(sample_size, len(sample)), random_state=42).reset_index(drop=True)
 
     def run_all(frame) -> np.ndarray:
-        feed = _build_input_feed(session, frame.to_dict("records"))
-        return np.asarray(session.run(None, feed)[0])
+        # Batched (one session.run() for all rows) is the fast path and works for
+        # almost every AutoML ONNX export. A handful of exports declare a *fixed*
+        # (non-dynamic) batch size of 1 on one particular input — often a raw
+        # identifier-like column that ended up as a model feature — which rejects
+        # a real batch outright. Fall back to one call per row in that case; it's
+        # slower but works regardless of which input the model got picky about.
+        rows = frame.to_dict("records")
+        try:
+            feed = _build_input_feed(session, rows)
+            return np.asarray(session.run(None, feed)[0])
+        except Exception:
+            return np.asarray([session.run(None, _build_input_feed(session, [row]))[0][0] for row in rows])
 
     baseline = run_all(sample)
     task_type = status_info["task_type"]

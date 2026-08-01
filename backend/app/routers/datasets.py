@@ -1,5 +1,13 @@
-"""Dataset upload, demo listing, and pre-training validation endpoints."""
+"""Dataset upload, demo listing, and pre-training validation endpoints.
+
+Route handlers below are plain `def`, not `async def` (except upload, which needs
+`await file.read()`) — everything they call is synchronous, blocking I/O (pandas,
+local disk / Azure Blob, and for training.py's sibling router, the Azure ML SDK).
+Under `async def` that blocking work runs directly on the single event loop and
+freezes every other in-flight request; FastAPI dispatches plain `def` handlers to
+a worker thread instead, which is what actually needs to happen here."""
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from app.models.schemas import ValidateDatasetRequest
 from app.services import dataset_service
@@ -13,19 +21,19 @@ router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 async def upload_dataset(file: UploadFile = File(...)):
     raw_bytes = await file.read()
     try:
-        metadata = dataset_service.upload_dataset(raw_bytes, file.filename or "upload.csv")
+        metadata = await run_in_threadpool(dataset_service.upload_dataset, raw_bytes, file.filename or "upload.csv")
     except dataset_service.DatasetError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return metadata
 
 
 @router.get("/demo")
-async def list_demo_datasets():
+def list_demo_datasets():
     return dataset_service.list_demo_datasets()
 
 
 @router.get("/{dataset_id}")
-async def get_dataset(dataset_id: str):
+def get_dataset(dataset_id: str):
     try:
         return dataset_service.get_dataset_metadata(dataset_id)
     except dataset_service.DatasetError as exc:
@@ -33,7 +41,7 @@ async def get_dataset(dataset_id: str):
 
 
 @router.post("/{dataset_id}/validate")
-async def validate_dataset(dataset_id: str, body: ValidateDatasetRequest = ValidateDatasetRequest()):
+def validate_dataset(dataset_id: str, body: ValidateDatasetRequest = ValidateDatasetRequest()):
     try:
         metadata = dataset_service.get_dataset_metadata(dataset_id)
         df = dataset_service.get_dataset_dataframe(dataset_id)

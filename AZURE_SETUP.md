@@ -16,6 +16,19 @@ pass if you'd rather not come back to this later.
     - Just the **account URL** (`https://<account>.blob.core.windows.net`) if you'd rather authenticate via `az login` / managed identity (`AZURE_STORAGE_ACCOUNT_URL`) — no secret to store
   - Put whichever you choose into `backend/.env`
 
+> **If using the account-URL option:** blob data access is a *separate* permission
+> from the Contributor role in Phase 2 below — Contributor manages the storage
+> account resource itself, not its blob contents. Your identity (or the Container
+> App's managed identity) also needs the **Storage Blob Data Contributor** role on
+> the storage account specifically, or every dataset read/write will fail with
+> `AuthorizationPermissionMismatch` even though `az login` succeeds:
+> ```bash
+> principalId=$(az ad signed-in-user show --query id -o tsv)
+> az role assignment create --assignee "$principalId" --role "Storage Blob Data Contributor" \
+>   --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Storage/storageAccounts/<account>
+> ```
+> Role assignments can take a minute or two to propagate before they take effect.
+
 ## Needed starting Phase 2 (AutoML training) — required now
 
 - [ ] **Azure Machine Learning workspace** (this auto-creates a Key Vault, a second storage account, and Application Insights alongside it — that's normal). Can live in the same resource group as the Phase 1 storage account.

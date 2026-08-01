@@ -1,4 +1,10 @@
-"""AutoML job submission, status/leaderboard, prediction, and results endpoints."""
+"""AutoML job submission, status/leaderboard, prediction, and results endpoints.
+
+Every handler below is plain `def`, not `async def` — everything they call (Azure
+ML SDK, mlflow, onnxruntime) is synchronous, blocking I/O. FastAPI dispatches
+plain `def` handlers to a worker thread instead of running them on the event
+loop, so a slow call here (e.g. explainability downloading + scoring a model)
+doesn't freeze every other concurrent request on the server."""
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import PlainTextResponse
 
@@ -24,7 +30,7 @@ def _run(fn, *args, **kwargs):
 
 
 @router.post("/training/jobs", dependencies=[Depends(enforce_training_rate_limit)])
-async def submit_training_job(body: SubmitTrainingJobRequest):
+def submit_training_job(body: SubmitTrainingJobRequest):
     return _run(
         training_service.submit_training_job,
         dataset_id=body.dataset_id,
@@ -36,38 +42,43 @@ async def submit_training_job(body: SubmitTrainingJobRequest):
     )
 
 
+@router.get("/training/jobs")
+def list_jobs(limit: int = 12):
+    return _run(training_service.list_recent_jobs, limit)
+
+
 @router.get("/training/jobs/{job_id}/status")
-async def get_job_status(job_id: str):
+def get_job_status(job_id: str):
     return _run(training_service.get_job_status, job_id)
 
 
 @router.get("/training/jobs/{job_id}/leaderboard")
-async def get_leaderboard(job_id: str):
+def get_leaderboard(job_id: str):
     return _run(training_service.get_leaderboard, job_id)
 
 
 @router.get("/training/jobs/{job_id}/summary")
-async def get_summary(job_id: str):
+def get_summary(job_id: str):
     return _run(llm_service.get_summary, job_id)
 
 
 @router.get("/training/jobs/{job_id}/explain")
-async def get_explanation(job_id: str):
+def get_explanation(job_id: str):
     return _run(training_service.get_explanation, job_id)
 
 
 @router.post("/predict/{job_id}")
-async def predict(job_id: str, body: PredictionRequest):
+def predict(job_id: str, body: PredictionRequest):
     return _run(training_service.predict, job_id, body.features)
 
 
 @router.get("/predict/{job_id}/curl")
-async def get_curl_snippet(job_id: str, request: Request):
+def get_curl_snippet(job_id: str, request: Request):
     snippet = _run(training_service.get_curl_snippet, job_id, str(request.base_url))
     return PlainTextResponse(snippet)
 
 
 @router.get("/predict/{job_id}/code")
-async def get_export_code(job_id: str):
+def get_export_code(job_id: str):
     code = _run(training_service.get_export_code, job_id)
     return PlainTextResponse(code)
