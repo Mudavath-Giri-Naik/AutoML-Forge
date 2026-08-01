@@ -43,10 +43,19 @@ You already have `az` installed and logged in, so this is all copy-paste. Uses
 your existing resource group (`automl-forge-rg`) and region (`centralindia`,
 matching your AML workspace) — adjust if yours differ.
 
+> **Region note:** Azure for Students subscriptions are locked to a specific
+> allowed-region list set by Microsoft (not something you can query directly
+> in advance — it just rejects disallowed ones with `RequestDisallowedByAzure`).
+> `centralindia` is confirmed to work for this subscription (that's where the
+> AML workspace lives), so every command below pins to it explicitly. If any
+> command still gets rejected, that specific resource type isn't available in
+> `centralindia` for your subscription — try `eastus`, `centralus`, or
+> `westeurope` instead, in that order.
+
 ### 1. Container Registry (holds the backend's Docker image)
 
 ```bash
-az acr create --name automlforgeacr --resource-group automl-forge-rg --sku Basic --admin-enabled false
+az acr create --name automlforgeacr --resource-group automl-forge-rg --location centralindia --sku Basic --admin-enabled false
 ```
 
 `automlforgeacr` must be globally unique — if it's taken, pick another name and use it consistently below.
@@ -124,13 +133,18 @@ Static Web App — come back and update it once you have that URL.
 
 ### 5. Static Web App (frontend)
 
+Static Web Apps only runs in a handful of regions to begin with (not
+`centralindia`), so try them in order until one isn't rejected by the
+subscription's region policy:
+
 ```bash
 az staticwebapp create --name automl-forge-frontend --resource-group automl-forge-rg --location centralus --sku Free
+# if that's disallowed, try:
+az staticwebapp create --name automl-forge-frontend --resource-group automl-forge-rg --location eastus2 --sku Free
+az staticwebapp create --name automl-forge-frontend --resource-group automl-forge-rg --location westeurope --sku Free
 ```
 
-(Static Web Apps isn't available in every region — `centralus` is a safe
-default regardless of where your other resources live.) Grab its URL and
-deployment token:
+Whichever one succeeds, grab its URL and deployment token:
 
 ```bash
 az staticwebapp show --name automl-forge-frontend --resource-group automl-forge-rg --query defaultHostname -o tsv
