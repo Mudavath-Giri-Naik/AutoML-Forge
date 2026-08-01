@@ -131,6 +131,14 @@ az containerapp update --name automl-forge-backend --resource-group automl-forge
 You won't have the real `CORS_ORIGINS` value until step 5 creates the
 Static Web App — come back and update it once you have that URL.
 
+> **Windows PowerShell gotcha:** setting `gemini-api-key` from PowerShell can
+> silently corrupt the value's character encoding — the symptom is a
+> `UnicodeEncodeError` deep in the backend's logs when it tries to call
+> Gemini, even though the secret "looks" right. If that happens, re-run the
+> `az containerapp secret set ...` command from Git Bash or WSL instead of
+> PowerShell, then restart the active revision:
+> `az containerapp revision restart --name automl-forge-backend --resource-group automl-forge-rg --revision <active-revision-name>`
+
 ### 5. Static Web App (frontend)
 
 Static Web Apps only runs in a handful of regions to begin with (not
