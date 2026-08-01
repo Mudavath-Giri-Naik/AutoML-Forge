@@ -8,6 +8,7 @@ database" design in the PRD (state lives entirely in Azure ML).
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import time
 from functools import lru_cache
@@ -62,6 +63,15 @@ MODEL_CACHE_DIR = Path(tempfile.gettempdir()) / "automl_forge_model_cache"
 
 class TrainingError(Exception):
     """User-facing training/prediction error (maps to HTTP 400/404)."""
+
+
+def _json_safe_float(value):
+    """NaN/Infinity are valid Python floats but not valid JSON — regression runs can
+    genuinely log these (e.g. a degenerate trial's r2_score), which would otherwise
+    crash the response serializer. Map them to None."""
+    if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
+        return None
+    return value
 
 
 def _normalize_status(raw_status: Optional[str]) -> str:
@@ -245,21 +255,22 @@ def get_job_status(job_id: str) -> dict:
 
 
 def get_leaderboard(job_id: str) -> dict:
+    """Ranked model list. Works during training too (partial results, no best-model
+    flag yet) so the frontend can poll this for a live 'race view', not just after
+    the job completes."""
     import mlflow
 
     status_info = get_job_status(job_id)
     status = status_info["status"]
     primary_metric = status_info["primary_metric"]
 
-    if status != "completed":
-        return {"job_id": job_id, "status": status, "primary_metric": primary_metric, "best_run_id": None, "models": []}
-
     mlflow.set_tracking_uri(get_mlflow_tracking_uri())
 
     try:
         parent_run = mlflow.get_run(job_id)
-    except Exception as exc:
-        raise TrainingError(f"Could not read training results for job '{job_id}': {exc}") from exc
+    except Exception:
+        # job submitted but the mlflow run hasn't been created yet
+        return {"job_id": job_id, "status": status, "primary_metric": primary_metric, "best_run_id": None, "models": []}
 
     best_run_id = parent_run.data.tags.get("automl_best_child_run_id")
 
@@ -271,20 +282,26 @@ def get_leaderboard(job_id: str) -> dict:
     if raw_algorithms:
         algorithm_by_index = dict(enumerate(raw_algorithms.split(";")))
 
-    # Right after a job flips to "completed", the run-history backend can
-    # briefly lag behind for search queries even though get_run already
-    # sees the parent — retry a few times before giving up.
-    child_runs = []
-    for attempt in range(4):
-        child_runs = mlflow.search_runs(
-            experiment_ids=[parent_run.info.experiment_id],
-            filter_string=f"tags.mlflow.parentRunId='{job_id}'",
-            output_format="list",
-        )
-        if child_runs:
-            break
-        if attempt < 3:
+    child_runs = mlflow.search_runs(
+        experiment_ids=[parent_run.info.experiment_id],
+        filter_string=f"tags.mlflow.parentRunId='{job_id}'",
+        output_format="list",
+    )
+
+    # Right after a job flips to "completed", the run-history backend can briefly
+    # lag behind for search queries even though get_run already sees the parent.
+    # Only worth retrying once actually completed — while still running, an
+    # empty/partial list is genuinely correct, not a lag artifact.
+    if not child_runs and status == "completed":
+        for _ in range(3):
             time.sleep(2)
+            child_runs = mlflow.search_runs(
+                experiment_ids=[parent_run.info.experiment_id],
+                filter_string=f"tags.mlflow.parentRunId='{job_id}'",
+                output_format="list",
+            )
+            if child_runs:
+                break
 
     models = []
     for run in child_runs:
@@ -302,8 +319,8 @@ def get_leaderboard(job_id: str) -> dict:
                 "algorithm": algorithm,
                 "status": run.info.status,
                 "is_best": run.info.run_id == best_run_id,
-                "primary_metric_value": metric_value,
-                "metrics": run.data.metrics,
+                "primary_metric_value": _json_safe_float(metric_value),
+                "metrics": {k: _json_safe_float(v) for k, v in run.data.metrics.items()},
             }
         )
 
@@ -363,41 +380,64 @@ def _load_model(job_id: str):
     from azureml.mlflow._store.artifact.artifact_repo import AzureMLflowArtifactRepository
 
     leaderboard = get_leaderboard(job_id)
-    best_run_id = leaderboard["best_run_id"]
-    if not best_run_id:
-        raise TrainingError(f"No completed best model is available yet for job '{job_id}'.")
+    candidates = [m for m in leaderboard["models"] if m["primary_metric_value"] is not None]
+    if not candidates:
+        raise TrainingError(f"No completed models are available yet for job '{job_id}'.")
 
     mlflow.set_tracking_uri(get_mlflow_tracking_uri())
-    run = mlflow.get_run(best_run_id)
-    repo = AzureMLflowArtifactRepository(run.info.artifact_uri)
-    onnx_artifact_path = _find_onnx_model_path(repo)
 
-    local_dir = MODEL_CACHE_DIR / job_id
-    local_dir.mkdir(parents=True, exist_ok=True)
-    model_path = repo.download_artifacts(onnx_artifact_path, dst_path=str(local_dir))
-    return onnxruntime.InferenceSession(model_path)
+    # Ensemble models (often the best-scoring ones) don't always get an ONNX
+    # export from AutoML — fall back through the ranked list to the best model
+    # that actually has one, rather than hard-failing on the literal top score.
+    last_error = None
+    for candidate in candidates:
+        try:
+            run = mlflow.get_run(candidate["run_id"])
+            repo = AzureMLflowArtifactRepository(run.info.artifact_uri)
+            onnx_artifact_path = _find_onnx_model_path(repo)
+        except TrainingError as exc:
+            last_error = exc
+            continue
+
+        local_dir = MODEL_CACHE_DIR / job_id
+        local_dir.mkdir(parents=True, exist_ok=True)
+        model_path = repo.download_artifacts(onnx_artifact_path, dst_path=str(local_dir))
+        session = onnxruntime.InferenceSession(model_path)
+        return session, candidate["run_id"], candidate["algorithm"]
+
+    raise TrainingError(
+        f"None of the top-ranked models for job '{job_id}' have an ONNX export available. {last_error}"
+    )
+
+
+def _build_input_feed(session, rows: list[dict]) -> dict:
+    """Builds an onnxruntime input feed for N rows at once (batched — one
+    session.run() call regardless of how many rows), keyed by each graph
+    input's own name. AutoML's exported graph takes one named tensor per raw
+    feature column, shaped [batch, 1] or [batch] depending on the run."""
+    feed = {}
+    for input_meta in session.get_inputs():
+        if any(input_meta.name not in row for row in rows):
+            raise TrainingError(f"Missing required feature '{input_meta.name}'.")
+        dtype = _ONNX_TO_NUMPY_DTYPE.get(input_meta.type, np.float32)
+        rank = len(input_meta.shape) if input_meta.shape else 1
+        column = [row[input_meta.name] for row in rows]
+        value = [[v] for v in column] if rank == 2 else column
+        feed[input_meta.name] = np.array(value, dtype=dtype)
+    return feed
 
 
 def predict(job_id: str, features: dict) -> dict:
     if not features:
         raise TrainingError("No feature values were provided.")
 
-    session = _load_model(job_id)
-
-    input_feed = {}
-    for input_meta in session.get_inputs():
-        if input_meta.name not in features:
-            raise TrainingError(f"Missing required feature '{input_meta.name}'.")
-        dtype = _ONNX_TO_NUMPY_DTYPE.get(input_meta.type, np.float32)
-        # AutoML's exported graph takes one named tensor per raw feature column,
-        # shaped [batch, 1] or [batch] depending on the run — match whichever the
-        # graph actually declares instead of assuming one.
-        rank = len(input_meta.shape) if input_meta.shape else 1
-        value = [[features[input_meta.name]]] if rank == 2 else [features[input_meta.name]]
-        input_feed[input_meta.name] = np.array(value, dtype=dtype)
+    session, model_run_id, model_algorithm = _load_model(job_id)
 
     try:
+        input_feed = _build_input_feed(session, [features])
         outputs = session.run(None, input_feed)
+    except TrainingError:
+        raise
     except Exception as exc:
         raise TrainingError(f"Prediction failed: {exc}") from exc
 
@@ -407,7 +447,7 @@ def predict(job_id: str, features: dict) -> dict:
     if hasattr(value, "item"):
         value = value.item()
 
-    result = {"job_id": job_id, "prediction": value}
+    result = {"job_id": job_id, "prediction": value, "model_run_id": model_run_id, "model_algorithm": model_algorithm}
 
     if len(outputs) > 1 and "probabilit" in output_names[1].lower():
         probabilities = outputs[1][0] if hasattr(outputs[1], "__getitem__") else outputs[1]
@@ -415,3 +455,123 @@ def predict(job_id: str, features: dict) -> dict:
             result["probabilities"] = {str(k): float(v) for k, v in probabilities.items()}
 
     return result
+
+
+@lru_cache(maxsize=10)
+def get_explanation(job_id: str, sample_size: int = 60) -> dict:
+    """Feature importance via permutation: shuffle one feature at a time across a
+    data sample and measure how much predictions move. Deliberately not Azure's own
+    explainability artifacts (azureml-interpret) or the `shap` package — both are
+    heavier dependencies than just reusing the onnxruntime session we already load
+    for predictions, and permutation importance is a well-established, model-agnostic
+    technique that needs nothing beyond numpy + pandas."""
+    status_info = get_job_status(job_id)
+    if status_info["status"] != "completed":
+        return {"job_id": job_id, "status": status_info["status"], "importances": []}
+
+    session, _, _ = _load_model(job_id)
+    input_names = [inp.name for inp in session.get_inputs()]
+
+    df = dataset_service.get_dataset_dataframe(status_info["dataset_id"])
+    missing = [c for c in input_names if c not in df.columns]
+    if missing:
+        raise TrainingError(f"Dataset is missing columns the model expects: {', '.join(missing)}")
+
+    sample = df[input_names].dropna()
+    if sample.empty:
+        return {"job_id": job_id, "status": "completed", "importances": []}
+    sample = sample.sample(n=min(sample_size, len(sample)), random_state=42).reset_index(drop=True)
+
+    def run_all(frame) -> np.ndarray:
+        feed = _build_input_feed(session, frame.to_dict("records"))
+        return np.asarray(session.run(None, feed)[0])
+
+    baseline = run_all(sample)
+    task_type = status_info["task_type"]
+    rng = np.random.default_rng(42)
+
+    importances = []
+    for col in input_names:
+        permuted = sample.copy()
+        permuted[col] = rng.permutation(permuted[col].to_numpy())
+        permuted_preds = run_all(permuted)
+
+        if task_type == "classification":
+            impact = float(np.mean(baseline != permuted_preds))
+        else:
+            impact = float(np.mean(np.abs(baseline.astype(float) - permuted_preds.astype(float))))
+        importances.append({"feature": col, "impact": impact})
+
+    total = sum(i["impact"] for i in importances) or 1.0
+    for i in importances:
+        i["importance"] = i["impact"] / total
+    importances.sort(key=lambda i: i["importance"], reverse=True)
+
+    return {"job_id": job_id, "status": "completed", "sample_size": len(sample), "importances": importances}
+
+
+def get_curl_snippet(job_id: str, api_base_url: str) -> str:
+    status_info = get_job_status(job_id)
+    metadata = dataset_service.get_dataset_metadata(status_info["dataset_id"])
+    excluded = {status_info["target_column"], status_info["time_column"]}
+
+    sample_features = {}
+    for col in metadata["columns"]:
+        if col["name"] in excluded:
+            continue
+        if col["inferred_type"] == "numeric":
+            sample_features[col["name"]] = col.get("mean", 0)
+        else:
+            sample_features[col["name"]] = col["sample_values"][0] if col["sample_values"] else ""
+
+    body = json.dumps({"features": sample_features}, indent=2)
+    return (
+        f"curl -X POST {api_base_url.rstrip('/')}/api/predict/{job_id} \\\n"
+        f'  -H "Content-Type: application/json" \\\n'
+        f"  -d '{body}'"
+    )
+
+
+def get_export_code(job_id: str) -> str:
+    status_info = get_job_status(job_id)
+    leaderboard = get_leaderboard(job_id)
+    best = next((m for m in leaderboard["models"] if m["is_best"]), None)
+    algorithm = best["algorithm"] if best else "AutoML"
+
+    metadata = dataset_service.get_dataset_metadata(status_info["dataset_id"])
+    excluded = {status_info["target_column"], status_info["time_column"]}
+    feature_lines = "\n".join(
+        f'    "{col["name"]}": ...,  # {col["inferred_type"]}'
+        for col in metadata["columns"]
+        if col["name"] not in excluded
+    )
+
+    return f'''"""
+Standalone scoring script for AutoML Forge job '{job_id}'.
+Winning algorithm: {algorithm}
+
+Download model.onnx first, from the winning run's "outputs" folder in
+Azure ML Studio (Jobs > this run > the best child run > Outputs + logs).
+
+Then:
+  pip install onnxruntime numpy
+  python score.py
+"""
+import numpy as np
+import onnxruntime as ort
+
+session = ort.InferenceSession("model.onnx")
+
+features = {{
+{feature_lines}
+}}
+
+feed = {{}}
+for inp in session.get_inputs():
+    value = features[inp.name]
+    rank = len(inp.shape) if inp.shape else 1
+    feed[inp.name] = np.array([[value]] if rank == 2 else [value])
+
+outputs = session.run(None, feed)
+print("Prediction:", outputs[0][0])
+'''

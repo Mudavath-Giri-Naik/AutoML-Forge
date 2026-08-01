@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     training_max_trials: int = 20
     training_serverless_instance_type: str = "Standard_DS3_v2"
 
+    # --- Plain-English summary (required for /api/training/jobs/{id}/summary) ---
+    gemini_api_key: Optional[str] = None
+    gemini_model: str = "gemini-2.5-flash"
+
     # --- CORS ---
     cors_origins: str = "http://localhost:5173"
 

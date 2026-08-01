@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertCircle } from "lucide-react";
 import StepIndicator from "../components/StepIndicator";
 import DatasetPicker from "../components/DatasetPicker";
@@ -6,7 +6,7 @@ import SchemaReview from "../components/SchemaReview";
 import HealthCheckReport from "../components/HealthCheckReport";
 import TrainingStatus from "../components/TrainingStatus";
 import { validateDataset } from "../api/datasets";
-import { submitTrainingJob } from "../api/training";
+import { getJobStatus, submitTrainingJob } from "../api/training";
 import { getErrorMessage } from "../api/client";
 
 export default function UploadFlowPage() {
@@ -20,6 +20,29 @@ export default function UploadFlowPage() {
   const [submittingJob, setSubmittingJob] = useState(false);
   const [submitError, setSubmitError] = useState(null);
   const [job, setJob] = useState(null);
+
+  // Anonymous + stateless app, so the job_id is the only handle a user has to
+  // come back to a job later — support jumping straight to it via ?job=<id>.
+  useEffect(() => {
+    const jobId = new URLSearchParams(window.location.search).get("job");
+    if (!jobId) return;
+    getJobStatus(jobId)
+      .then((status) => {
+        setJob({
+          job_id: status.job_id,
+          dataset_id: status.dataset_id,
+          task_type: status.task_type,
+          target_column: status.target_column,
+          time_column: status.time_column,
+          primary_metric: status.primary_metric,
+          studio_url: null,
+        });
+        setStep(4);
+      })
+      .catch(() => {
+        /* invalid/unknown job id in the URL — fall through to the normal flow */
+      });
+  }, []);
 
   const handleDatasetReady = (meta) => {
     setMetadata(meta);
@@ -55,6 +78,7 @@ export default function UploadFlowPage() {
       });
       setJob(submitted);
       setStep(4);
+      window.history.replaceState(null, "", `?job=${submitted.job_id}`);
     } catch (err) {
       setSubmitError(getErrorMessage(err, "Could not submit the training job."));
     } finally {
@@ -70,6 +94,7 @@ export default function UploadFlowPage() {
     setValidateError(null);
     setSubmitError(null);
     setJob(null);
+    window.history.replaceState(null, "", window.location.pathname);
   };
 
   return (

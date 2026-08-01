@@ -26,3 +26,23 @@ export async function predict(jobId, features) {
   const { data } = await apiClient.post(`/api/predict/${jobId}`, { features });
   return data;
 }
+
+export async function getSummary(jobId) {
+  const { data } = await apiClient.get(`/api/training/jobs/${jobId}/summary`);
+  return data;
+}
+
+export async function getExplanation(jobId) {
+  const { data } = await apiClient.get(`/api/training/jobs/${jobId}/explain`);
+  return data;
+}
+
+export async function getCurlSnippet(jobId) {
+  const { data } = await apiClient.get(`/api/predict/${jobId}/curl`, { responseType: "text" });
+  return data;
+}
+
+export async function getExportCode(jobId) {
+  const { data } = await apiClient.get(`/api/predict/${jobId}/code`, { responseType: "text" });
+  return data;
+}

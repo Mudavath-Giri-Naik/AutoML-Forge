@@ -1,8 +1,9 @@
-"""AutoML job submission, status/leaderboard, and prediction endpoints."""
-from fastapi import APIRouter, HTTPException
+"""AutoML job submission, status/leaderboard, prediction, and results endpoints."""
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 
 from app.models.schemas import PredictionRequest, SubmitTrainingJobRequest
-from app.services import dataset_service, training_service
+from app.services import dataset_service, llm_service, training_service
 from app.services.aml_client import AzureMLNotConfigured
 
 router = APIRouter(prefix="/api", tags=["training"])
@@ -17,6 +18,8 @@ def _run(fn, *args, **kwargs):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except training_service.TrainingError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except llm_service.LLMError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
 @router.post("/training/jobs")
@@ -42,6 +45,28 @@ async def get_leaderboard(job_id: str):
     return _run(training_service.get_leaderboard, job_id)
 
 
+@router.get("/training/jobs/{job_id}/summary")
+async def get_summary(job_id: str):
+    return _run(llm_service.get_summary, job_id)
+
+
+@router.get("/training/jobs/{job_id}/explain")
+async def get_explanation(job_id: str):
+    return _run(training_service.get_explanation, job_id)
+
+
 @router.post("/predict/{job_id}")
 async def predict(job_id: str, body: PredictionRequest):
     return _run(training_service.predict, job_id, body.features)
+
+
+@router.get("/predict/{job_id}/curl")
+async def get_curl_snippet(job_id: str, request: Request):
+    snippet = _run(training_service.get_curl_snippet, job_id, str(request.base_url))
+    return PlainTextResponse(snippet)
+
+
+@router.get("/predict/{job_id}/code")
+async def get_export_code(job_id: str):
+    code = _run(training_service.get_export_code, job_id)
+    return PlainTextResponse(code)

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RotateCcw, XCircle } from "lucide-react";
 import { getJobStatus, getLeaderboard } from "../api/training";
 import { getErrorMessage } from "../api/client";
+import TrainingRace from "./TrainingRace";
+import ResultsView from "./ResultsView";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -11,11 +13,6 @@ const STATUS_COPY = {
   failed: { label: "Training failed", icon: XCircle, spin: false, tone: "text-crit-500" },
   unknown: { label: "Unknown status", icon: AlertCircle, spin: false, tone: "text-forge-400" },
 };
-
-function formatMetric(value) {
-  if (value === null || value === undefined) return "—";
-  return Number(value).toFixed(4);
-}
 
 export default function TrainingStatus({ initialJob, onRestart }) {
   const [status, setStatus] = useState(null);
@@ -28,19 +25,15 @@ export default function TrainingStatus({ initialJob, onRestart }) {
 
     const poll = async () => {
       try {
-        const result = await getJobStatus(initialJob.job_id);
+        const [statusResult, leaderboardResult] = await Promise.all([
+          getJobStatus(initialJob.job_id),
+          getLeaderboard(initialJob.job_id),
+        ]);
         if (cancelled) return;
-        setStatus(result);
+        setStatus(statusResult);
+        setLeaderboard(leaderboardResult);
 
-        if (result.status === "completed") {
-          clearInterval(pollRef.current);
-          try {
-            const lb = await getLeaderboard(initialJob.job_id);
-            if (!cancelled) setLeaderboard(lb);
-          } catch (err) {
-            if (!cancelled) setError(getErrorMessage(err, "Could not load the leaderboard."));
-          }
-        } else if (result.status === "failed") {
+        if (statusResult.status === "completed" || statusResult.status === "failed") {
           clearInterval(pollRef.current);
         }
       } catch (err) {
@@ -110,65 +103,14 @@ export default function TrainingStatus({ initialJob, onRestart }) {
         </div>
       )}
 
-      {status?.trials?.length > 0 && status.status !== "completed" && (
-        <div className="overflow-x-auto rounded-xl border border-forge-800">
-          <table className="w-full min-w-[420px] text-left text-sm">
-            <thead>
-              <tr className="border-b border-forge-800 bg-forge-900 text-xs uppercase tracking-wide text-forge-500">
-                <th className="px-4 py-2.5 font-medium">Trial</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {status.trials.map((t) => (
-                <tr key={t.run_id} className="border-b border-forge-800/60 last:border-0">
-                  <td className="px-4 py-2 font-mono text-xs text-forge-300">{t.display_name || t.run_id}</td>
-                  <td className="px-4 py-2 capitalize text-forge-400">{t.status}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {status?.status === "running" && leaderboard && (
+        <div className="rounded-xl border border-forge-800 bg-forge-900 p-4">
+          <h3 className="mb-3 text-sm font-semibold text-forge-100">Live race</h3>
+          <TrainingRace leaderboard={leaderboard} primaryMetric={leaderboard.primary_metric} />
         </div>
       )}
 
-      {leaderboard && (
-        <div>
-          <h3 className="mb-3 text-lg font-semibold text-forge-50">Leaderboard</h3>
-          <div className="overflow-x-auto rounded-xl border border-forge-800">
-            <table className="w-full min-w-[480px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-forge-800 bg-forge-900 text-xs uppercase tracking-wide text-forge-500">
-                  <th className="px-4 py-2.5 font-medium">Algorithm</th>
-                  <th className="px-4 py-2.5 font-medium">{leaderboard.primary_metric}</th>
-                  <th className="px-4 py-2.5 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leaderboard.models.map((m) => (
-                  <tr
-                    key={m.run_id}
-                    className={`border-b border-forge-800/60 last:border-0 ${m.is_best ? "bg-ember-500/5" : ""}`}
-                  >
-                    <td className="px-4 py-2.5 font-medium text-forge-100">
-                      {m.algorithm}
-                      {m.is_best && (
-                        <span className="ml-2 rounded-full bg-ember-500/15 px-2 py-0.5 text-[10px] font-semibold text-ember-400">
-                          BEST
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5 text-forge-300">{formatMetric(m.primary_metric_value)}</td>
-                    <td className="px-4 py-2.5 text-forge-400">{m.status}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="mt-3 text-xs text-forge-500">
-            Plain-English summary, what-if predictions, and explainability are coming in Phase 3.
-          </p>
-        </div>
-      )}
+      {status?.status === "completed" && leaderboard && <ResultsView job={initialJob} leaderboard={leaderboard} />}
 
       <div className="pt-2">
         <button

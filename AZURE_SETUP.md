@@ -29,9 +29,13 @@ pass if you'd rather not come back to this later.
   AZURE_ML_WORKSPACE_NAME=<your AML workspace name>
   ```
 
-## Needed starting Phase 3 (plain-English summary)
+## Needed starting Phase 3 (plain-English summary) — required now
 
-- [ ] A **Gemini API key** (free tier) from [Google AI Studio](https://aistudio.google.com/) — goes into `GEMINI_API_KEY` in `backend/.env`
+- [ ] A **Gemini API key** (free tier): go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey), sign in with a Google account, click "Create API key". Put it in `backend/.env`:
+  ```
+  GEMINI_API_KEY=<your key>
+  ```
+  Not Azure-related, no other setup needed — this is the only place an LLM is used in the whole app, and only to narrate results, never for predictions.
 
 ## Needed starting Phase 4 (deploy)
 
