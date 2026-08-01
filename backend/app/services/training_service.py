@@ -182,8 +182,13 @@ def submit_training_job(
         # pickle requires azureml's internal training-runtime classes, which pull in
         # a huge, fragile, Python-<3.12-only legacy dependency chain (~30 packages,
         # including a native onnx/protobuf DLL conflict we hit and worked around).
-        # ONNX keeps the serving side to just `onnxruntime`.
-        job.set_training(enable_onnx_compatible_models=True)
+        # ONNX keeps the serving side to just `onnxruntime`. Azure ML rejects this
+        # flag outright for forecasting jobs ("Forecasting task is not ONNX
+        # compatible") — only classification/regression get it; a completed
+        # forecasting job's predict/explain calls surface a clear "no ONNX model
+        # artifact" error instead of a live endpoint.
+        if task_type != "forecasting":
+            job.set_training(enable_onnx_compatible_models=True)
         job.set_limits(
             timeout_minutes=settings.training_job_timeout_minutes,
             trial_timeout_minutes=settings.training_trial_timeout_minutes,
