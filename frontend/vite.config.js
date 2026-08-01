@@ -8,4 +8,7 @@ export default defineConfig({
   server: {
     port: 5173,
   },
+  optimizeDeps: {
+    include: ['framer-motion', 'react-dropzone', 'recharts', 'lucide-react'],
+  },
 })

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RotateCcw, XCircle } from "lucide-react";
 import { getJobStatus, getLeaderboard } from "../api/training";
 import { getErrorMessage } from "../api/client";
@@ -57,7 +58,7 @@ export default function TrainingStatus({ initialJob, onRestart }) {
 
   return (
     <div className="space-y-6">
-      <div>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
         <h2 className="mb-1 text-xl font-semibold text-forge-50 sm:text-2xl">Training</h2>
         <p className="text-sm text-forge-400">
           Job <span className="font-mono text-forge-300">{initialJob.job_id}</span> · Target:{" "}
@@ -65,13 +66,32 @@ export default function TrainingStatus({ initialJob, onRestart }) {
           <span className="capitalize text-forge-200">{initialJob.task_type}</span> · Metric:{" "}
           <span className="text-forge-200">{initialJob.primary_metric}</span>
         </p>
-      </div>
+      </motion.div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-forge-800 bg-forge-900 p-4">
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.05 }}
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-forge-800 bg-forge-900 p-4"
+      >
         <div className="flex items-center gap-3">
-          <StatusIcon size={20} className={`${statusCopy.tone} ${statusCopy.spin ? "animate-spin" : ""}`} />
+          <span className="relative flex items-center justify-center">
+            {statusCopy.spin && (
+              <span className="absolute h-7 w-7 animate-ping rounded-full bg-ember-500/20" />
+            )}
+            <StatusIcon size={20} className={`relative ${statusCopy.tone} ${statusCopy.spin ? "animate-spin" : ""}`} />
+          </span>
           <div>
-            <p className="text-sm font-semibold text-forge-100">{statusCopy.label}</p>
+            <motion.p
+              key={statusCopy.label}
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.25 }}
+              className="text-sm font-semibold text-forge-100"
+            >
+              {statusCopy.label}
+            </motion.p>
             {status && (
               <p className="text-xs text-forge-400">
                 {status.trial_count} trial{status.trial_count === 1 ? "" : "s"} so far · capped at 15 minutes
@@ -89,28 +109,44 @@ export default function TrainingStatus({ initialJob, onRestart }) {
             View in Azure ML Studio <ExternalLink size={12} />
           </a>
         )}
-      </div>
+      </motion.div>
 
       {error && (
-        <div className="flex items-center gap-2 rounded-lg border border-crit-500/30 bg-crit-500/10 p-3 text-sm text-crit-500">
-          <AlertCircle size={16} /> {error}
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center gap-2 rounded-lg border border-crit-500/30 bg-crit-500/10 p-3 text-sm text-crit-500"
+        >
+          <AlertCircle size={16} className="shrink-0" /> {error}
+        </motion.div>
       )}
 
       {status?.status === "failed" && (
-        <div className="rounded-xl border border-crit-500/30 bg-crit-500/5 p-4 text-sm text-crit-400">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-crit-500/30 bg-crit-500/5 p-4 text-sm text-crit-400"
+        >
           The job failed. Check the Azure ML Studio link above for the full error log.
-        </div>
+        </motion.div>
       )}
 
       {status?.status === "running" && leaderboard && (
-        <div className="rounded-xl border border-forge-800 bg-forge-900 p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-forge-800 bg-forge-900 p-4"
+        >
           <h3 className="mb-3 text-sm font-semibold text-forge-100">Live race</h3>
           <TrainingRace leaderboard={leaderboard} primaryMetric={leaderboard.primary_metric} />
-        </div>
+        </motion.div>
       )}
 
-      {status?.status === "completed" && leaderboard && <ResultsView job={initialJob} leaderboard={leaderboard} />}
+      {status?.status === "completed" && leaderboard && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+          <ResultsView job={initialJob} leaderboard={leaderboard} />
+        </motion.div>
+      )}
 
       <div className="pt-2">
         <button

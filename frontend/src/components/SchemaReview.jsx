@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { TypeBadge } from "./Badge";
 
@@ -7,6 +8,16 @@ const TASK_TYPES = [
   { value: "regression", label: "Regression" },
   { value: "forecasting", label: "Forecasting" },
 ];
+
+const staggerParent = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.06 } },
+};
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } },
+};
 
 export default function SchemaReview({ metadata, onConfirm, onBack }) {
   const [targetColumn, setTargetColumn] = useState(metadata.suggested_target_column || "");
@@ -28,23 +39,28 @@ export default function SchemaReview({ metadata, onConfirm, onBack }) {
 
   return (
     <div className="space-y-6">
-      <div>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
         <h2 className="mb-1 text-xl font-semibold text-forge-50 sm:text-2xl">Review the schema</h2>
         <p className="text-sm text-forge-400">
           {metadata.filename} — {metadata.row_count.toLocaleString()} rows × {metadata.column_count} columns.
           Confirm the target column and task type, or override our suggestion.
         </p>
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-forge-800 bg-forge-900 p-4">
+      <motion.div
+        variants={staggerParent}
+        initial="hidden"
+        animate="show"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-3"
+      >
+        <motion.div variants={fadeUp} className="rounded-xl border border-forge-800 bg-forge-900 p-4 transition-colors hover:border-forge-700">
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-forge-500">
             Target column
           </label>
           <select
             value={targetColumn}
             onChange={(e) => setTargetColumn(e.target.value)}
-            className="w-full rounded-lg border border-forge-700 bg-forge-850 px-3 py-2 text-sm text-forge-100 outline-none focus:border-ember-500"
+            className="w-full rounded-lg border border-forge-700 bg-forge-850 px-3 py-2 text-sm text-forge-100 outline-none transition-colors focus:border-ember-500"
           >
             {columns.map((c) => (
               <option key={c.name} value={c.name}>
@@ -52,16 +68,16 @@ export default function SchemaReview({ metadata, onConfirm, onBack }) {
               </option>
             ))}
           </select>
-        </div>
+        </motion.div>
 
-        <div className="rounded-xl border border-forge-800 bg-forge-900 p-4">
+        <motion.div variants={fadeUp} className="rounded-xl border border-forge-800 bg-forge-900 p-4 transition-colors hover:border-forge-700">
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-forge-500">
             Task type
           </label>
           <select
             value={taskType}
             onChange={(e) => setTaskType(e.target.value)}
-            className="w-full rounded-lg border border-forge-700 bg-forge-850 px-3 py-2 text-sm text-forge-100 outline-none focus:border-ember-500"
+            className="w-full rounded-lg border border-forge-700 bg-forge-850 px-3 py-2 text-sm text-forge-100 outline-none transition-colors focus:border-ember-500"
           >
             {TASK_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
@@ -69,9 +85,9 @@ export default function SchemaReview({ metadata, onConfirm, onBack }) {
               </option>
             ))}
           </select>
-        </div>
+        </motion.div>
 
-        <div className="rounded-xl border border-forge-800 bg-forge-900 p-4">
+        <motion.div variants={fadeUp} className="rounded-xl border border-forge-800 bg-forge-900 p-4 transition-colors hover:border-forge-700">
           <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-forge-500">
             Time column {taskType !== "forecasting" && <span className="normal-case text-forge-600">(forecasting only)</span>}
           </label>
@@ -79,7 +95,7 @@ export default function SchemaReview({ metadata, onConfirm, onBack }) {
             value={timeColumn}
             onChange={(e) => setTimeColumn(e.target.value)}
             disabled={taskType !== "forecasting"}
-            className="w-full rounded-lg border border-forge-700 bg-forge-850 px-3 py-2 text-sm text-forge-100 outline-none focus:border-ember-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="w-full rounded-lg border border-forge-700 bg-forge-850 px-3 py-2 text-sm text-forge-100 outline-none transition-colors focus:border-ember-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <option value="">Select…</option>
             {datetimeColumns.map((c) => (
@@ -91,10 +107,15 @@ export default function SchemaReview({ metadata, onConfirm, onBack }) {
           {taskType === "forecasting" && datetimeColumns.length === 0 && (
             <p className="mt-1.5 text-xs text-crit-500">No datetime column was detected in this dataset.</p>
           )}
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
 
-      <div className="overflow-x-auto rounded-xl border border-forge-800">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="overflow-x-auto rounded-xl border border-forge-800"
+      >
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead>
             <tr className="border-b border-forge-800 bg-forge-900 text-xs uppercase tracking-wide text-forge-500">
@@ -133,7 +154,7 @@ export default function SchemaReview({ metadata, onConfirm, onBack }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </motion.div>
 
       <div className="flex items-center justify-between pt-2">
         <button
@@ -143,14 +164,16 @@ export default function SchemaReview({ metadata, onConfirm, onBack }) {
         >
           <ArrowLeft size={16} /> Back
         </button>
-        <button
+        <motion.button
+          whileHover={canContinue ? { scale: 1.03 } : {}}
+          whileTap={canContinue ? { scale: 0.97 } : {}}
           type="button"
           onClick={handleContinue}
           disabled={!canContinue}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-ember-500 px-5 py-2.5 text-sm font-semibold text-forge-950 transition hover:bg-ember-400 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-ember-500 px-5 py-2.5 text-sm font-semibold text-forge-950 shadow-lg shadow-ember-950/30 transition-colors hover:bg-ember-400 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Run health check <ArrowRight size={16} />
-        </button>
+        </motion.button>
       </div>
     </div>
   );

@@ -12,6 +12,11 @@ export async function submitTrainingJob({ datasetId, taskType, targetColumn, tim
   return data;
 }
 
+export async function listRecentJobs(limit = 12) {
+  const { data } = await apiClient.get("/api/training/jobs", { params: { limit } });
+  return data;
+}
+
 export async function getJobStatus(jobId) {
   const { data } = await apiClient.get(`/api/training/jobs/${jobId}/status`);
   return data;

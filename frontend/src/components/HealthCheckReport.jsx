@@ -1,6 +1,17 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Flame, Info, Loader2, XCircle } from "lucide-react";
 import { SeverityBadge } from "./Badge";
+
+const staggerParent = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.06 } },
+};
+
+const fadeUp = {
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.16, 1, 0.3, 1] } },
+};
 
 const OVERALL_COPY = {
   healthy: { label: "Looks healthy", icon: CheckCircle2 },
@@ -97,15 +108,18 @@ export default function HealthCheckReport({ report, timeColumn, onBack, onStartT
 
   return (
     <div className="space-y-6">
-      <div>
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
         <h2 className="mb-1 text-xl font-semibold text-forge-50 sm:text-2xl">Data health check</h2>
         <p className="text-sm text-forge-400">
           Target: <span className="text-forge-200">{report.target_column}</span> · Task:{" "}
           <span className="capitalize text-forge-200">{report.task_type}</span>
         </p>
-      </div>
+      </motion.div>
 
-      <div
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.4, delay: 0.05 }}
         className={`flex items-center gap-3 rounded-xl border p-4 ${
           report.overall_status === "critical"
             ? "border-crit-500/30 bg-crit-500/5"
@@ -131,16 +145,20 @@ export default function HealthCheckReport({ report, timeColumn, onBack, onStartT
             {report.checks.length} finding{report.checks.length === 1 ? "" : "s"}
           </p>
         </div>
-      </div>
+      </motion.div>
 
       {report.checks.length === 0 ? (
         <p className="text-sm text-forge-400">No issues found — this dataset is ready to train on.</p>
       ) : (
-        <div className="space-y-3">
+        <motion.div variants={staggerParent} initial="hidden" animate="show" className="space-y-3">
           {report.checks.map((check) => {
             const Icon = SEVERITY_ICON[check.severity] || Info;
             return (
-              <div key={check.id} className="rounded-xl border border-forge-800 bg-forge-900 p-4">
+              <motion.div
+                key={check.id}
+                variants={fadeUp}
+                className="rounded-xl border border-forge-800 bg-forge-900 p-4 transition-colors hover:border-forge-700"
+              >
                 <div className="flex items-start gap-3">
                   <Icon
                     size={18}
@@ -161,13 +179,18 @@ export default function HealthCheckReport({ report, timeColumn, onBack, onStartT
                     <CheckDetails details={check.details} />
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
-        </div>
+        </motion.div>
       )}
 
-      <div className="rounded-xl border border-forge-800 bg-forge-900 p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.15 }}
+        className="rounded-xl border border-forge-800 bg-forge-900 p-4"
+      >
         <p className="mb-3 text-sm font-semibold text-forge-100">Training configuration</p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
@@ -208,12 +231,17 @@ export default function HealthCheckReport({ report, timeColumn, onBack, onStartT
         <p className="mt-3 text-xs text-forge-500">
           AutoML will train and compare classical models on Azure ML serverless compute, capped at 15 minutes.
         </p>
-      </div>
+      </motion.div>
 
       {submitError && (
-        <div className="flex items-center gap-2 rounded-lg border border-crit-500/30 bg-crit-500/10 p-3 text-sm text-crit-500">
-          <XCircle size={16} /> {submitError}
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="flex items-center gap-2 rounded-lg border border-crit-500/30 bg-crit-500/10 p-3 text-sm text-crit-500"
+        >
+          <XCircle size={16} className="shrink-0" /> {submitError}
+        </motion.div>
       )}
 
       <div className="flex items-center justify-between pt-2">
@@ -225,11 +253,13 @@ export default function HealthCheckReport({ report, timeColumn, onBack, onStartT
         >
           <ArrowLeft size={16} /> Back
         </button>
-        <button
+        <motion.button
+          whileHover={canStart && !submitting ? { scale: 1.03 } : {}}
+          whileTap={canStart && !submitting ? { scale: 0.97 } : {}}
           type="button"
           onClick={() => onStartTraining({ primaryMetric, forecastHorizon })}
           disabled={!canStart || submitting}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-ember-500 px-5 py-2.5 text-sm font-semibold text-forge-950 transition hover:bg-ember-400 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-ember-500 px-5 py-2.5 text-sm font-semibold text-forge-950 shadow-lg shadow-ember-950/30 transition-colors hover:bg-ember-400 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {submitting ? (
             <>
@@ -240,7 +270,7 @@ export default function HealthCheckReport({ report, timeColumn, onBack, onStartT
               <Flame size={16} /> Start training
             </>
           )}
-        </button>
+        </motion.button>
       </div>
     </div>
   );

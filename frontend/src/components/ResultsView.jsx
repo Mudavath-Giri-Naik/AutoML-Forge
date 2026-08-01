@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { motion } from "framer-motion";
 import { AlertCircle, Loader2, MessageSquare, Sliders } from "lucide-react";
 import { getDataset } from "../api/datasets";
 import { getCurlSnippet, getExplanation, getExportCode, getSummary } from "../api/training";
@@ -7,14 +8,19 @@ import RankedBarChart from "./RankedBarChart";
 import WhatIfPlayground from "./WhatIfPlayground";
 import CodeSnippet from "./CodeSnippet";
 
+const sectionVariants = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1] } },
+};
+
 function Section({ title, icon: Icon, children }) {
   return (
-    <section>
+    <motion.section variants={sectionVariants}>
       <h3 className="mb-3 flex items-center gap-2 text-lg font-semibold text-forge-50">
         {Icon && <Icon size={18} className="text-ember-400" />} {title}
       </h3>
       {children}
-    </section>
+    </motion.section>
   );
 }
 
@@ -69,7 +75,12 @@ export default function ResultsView({ job, leaderboard }) {
   const importanceData = (explanation?.importances || []).map((i) => ({ name: i.feature, value: i.importance }));
 
   return (
-    <div className="space-y-10">
+    <motion.div
+      variants={{ hidden: {}, show: { transition: { staggerChildren: 0.12 } } }}
+      initial="hidden"
+      animate="show"
+      className="space-y-10"
+    >
       <Section title="Plain-English summary" icon={MessageSquare}>
         {summaryLoading ? (
           <p className="flex items-center gap-2 text-sm text-forge-400">
@@ -142,6 +153,6 @@ export default function ResultsView({ job, leaderboard }) {
           </div>
         </div>
       </Section>
-    </div>
+    </motion.div>
   );
 }

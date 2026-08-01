@@ -2,15 +2,15 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 
   /* "Forge" palette: charcoal + warm amber accent */
-  --color-forge-950: #0a0b0f;
-  --color-forge-925: #0e0f14;
-  --color-forge-900: #12141a;
-  --color-forge-850: #171a22;
-  --color-forge-800: #1d212b;
-  --color-forge-700: #2a2f3c;
+  --color-forge-950: #08090c;
+  --color-forge-925: #0c0d12;
+  --color-forge-900: #111319;
+  --color-forge-850: #161922;
+  --color-forge-800: #1c202a;
+  --color-forge-700: #292e3a;
   --color-forge-600: #3a4152;
   --color-forge-500: #565f75;
   --color-forge-400: #7c8499;
@@ -27,6 +27,28 @@
   --color-ok-500: #22c55e;
   --color-warn-500: #eab308;
   --color-crit-500: #ef4444;
+
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.8s ease-in-out infinite;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes shimmer {
+    0% {
+      background-position: -200% 0;
+    }
+    100% {
+      background-position: 200% 0;
+    }
+  }
 }
 
 html {
@@ -42,11 +64,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* subtle warm radial glow behind the top of the page, forge/kiln feel */
+/* layered warm glow + faint grid, forge/kiln feel — fixed so it doesn't repeat on scroll */
 #root {
   min-height: 100svh;
+  position: relative;
+  isolation: isolate;
+}
+
+#root::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
   background:
-    radial-gradient(60rem 30rem at 50% -10%, rgba(249, 115, 22, 0.08), transparent 60%),
+    radial-gradient(50rem 26rem at 15% -8%, rgba(249, 115, 22, 0.1), transparent 60%),
+    radial-gradient(40rem 24rem at 100% 12%, rgba(249, 115, 22, 0.05), transparent 55%),
     var(--color-forge-950);
 }
 
@@ -56,4 +88,28 @@ body {
 
 * {
   scrollbar-color: var(--color-forge-600) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-forge-700);
+  border-radius: 999px;
+  border: 2px solid var(--color-forge-950);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-forge-600);
+}
+
+/* consistent, visible focus ring across the app without fighting Tailwind utility rings */
+:focus-visible {
+  outline: 2px solid var(--color-ember-500);
+  outline-offset: 2px;
+  border-radius: 4px;
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
+import { motion } from "framer-motion";
 import { AlertCircle, LineChart, Target, TrendingUp, UploadCloud } from "lucide-react";
 import { getDataset, listDemoDatasets, uploadDataset } from "../api/datasets";
 import { getErrorMessage } from "../api/client";
@@ -11,6 +12,16 @@ const TASK_ICONS = {
 };
 
 const MAX_UPLOAD_MB = 10;
+
+const gridVariants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.07 } },
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 10 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: [0.16, 1, 0.3, 1] } },
+};
 
 export default function DatasetPicker({ onReady }) {
   const [demoDatasets, setDemoDatasets] = useState([]);
@@ -76,7 +87,11 @@ export default function DatasetPicker({ onReady }) {
 
   return (
     <div className="space-y-8">
-      <section>
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      >
         <h2 className="mb-1 text-xl font-semibold text-forge-50 sm:text-2xl">Pick a dataset</h2>
         <p className="mb-5 text-sm text-forge-400">
           Try one of the preloaded datasets below, or upload your own CSV (max {MAX_UPLOAD_MB} MB).
@@ -85,7 +100,10 @@ export default function DatasetPicker({ onReady }) {
         {demoLoading && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-36 animate-pulse rounded-xl border border-forge-800 bg-forge-900" />
+              <div
+                key={i}
+                className="h-36 overflow-hidden rounded-xl border border-forge-800 bg-forge-900 bg-[linear-gradient(110deg,var(--color-forge-900)_8%,var(--color-forge-850)_18%,var(--color-forge-900)_33%)] bg-[length:200%_100%] animate-shimmer"
+              />
             ))}
           </div>
         )}
@@ -97,33 +115,45 @@ export default function DatasetPicker({ onReady }) {
         )}
 
         {!demoLoading && !demoError && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <motion.div
+            variants={gridVariants}
+            initial="hidden"
+            animate="show"
+            className="grid grid-cols-1 gap-3 sm:grid-cols-3"
+          >
             {demoDatasets.map((d) => {
               const Icon = TASK_ICONS[d.task_type] || Target;
               const busy = selectingId === d.dataset_id;
               return (
-                <button
+                <motion.button
                   key={d.dataset_id}
+                  variants={cardVariants}
+                  whileHover={{ y: -3 }}
+                  whileTap={{ scale: 0.98 }}
                   type="button"
                   onClick={() => handleDemoSelect(d.dataset_id)}
                   disabled={selectingId !== null}
-                  className="group flex flex-col items-start rounded-xl border border-forge-800 bg-forge-900 p-4 text-left transition hover:border-ember-500/50 hover:bg-forge-850 disabled:cursor-wait disabled:opacity-60"
+                  className="group flex flex-col items-start rounded-xl border border-forge-800 bg-forge-900 p-4 text-left shadow-sm transition-colors hover:border-ember-500/50 hover:bg-forge-850 hover:shadow-lg hover:shadow-ember-950/20 disabled:cursor-wait disabled:opacity-60"
                 >
-                  <span className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-ember-500/10 text-ember-400 ring-1 ring-inset ring-ember-500/20">
+                  <span className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-ember-500/10 text-ember-400 ring-1 ring-inset ring-ember-500/20 transition-transform duration-300 group-hover:scale-110">
                     <Icon size={18} />
                   </span>
                   <span className="mb-1 text-sm font-semibold text-forge-50">{d.name}</span>
                   <span className="mb-3 text-xs capitalize text-forge-400">{d.task_type}</span>
                   <span className="text-xs leading-relaxed text-forge-400">{d.description}</span>
                   <span className="mt-3 text-[11px] text-forge-500">{busy ? "Loading…" : d.source}</span>
-                </button>
+                </motion.button>
               );
             })}
-          </div>
+          </motion.div>
         )}
-      </section>
+      </motion.section>
 
-      <section>
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.15, ease: [0.16, 1, 0.3, 1] }}
+      >
         <div className="mb-3 flex items-center gap-3">
           <div className="h-px flex-1 bg-forge-800" />
           <span className="text-xs font-medium uppercase tracking-wider text-forge-500">or upload your own</span>
@@ -132,21 +162,28 @@ export default function DatasetPicker({ onReady }) {
 
         <div
           {...getRootProps()}
-          className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition sm:p-10 ${
+          className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-8 text-center transition-colors sm:p-10 ${
             isDragActive
               ? "border-ember-500 bg-ember-500/5"
               : "border-forge-700 bg-forge-900/50 hover:border-forge-600 hover:bg-forge-900"
           } ${uploading ? "pointer-events-none opacity-70" : ""}`}
         >
           <input {...getInputProps()} />
-          <UploadCloud size={28} className="mb-3 text-forge-400" />
+          <motion.span
+            animate={isDragActive ? { y: -4 } : { y: 0 }}
+            transition={{ duration: 0.25 }}
+          >
+            <UploadCloud size={28} className="mb-3 text-forge-400" />
+          </motion.span>
           {uploading ? (
             <div className="w-full max-w-xs">
               <p className="mb-2 text-sm text-forge-300">Uploading… {progress}%</p>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-forge-800">
-                <div
-                  className="h-full rounded-full bg-ember-500 transition-all"
-                  style={{ width: `${progress}%` }}
+                <motion.div
+                  className="h-full rounded-full bg-ember-500"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${progress}%` }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
                 />
               </div>
             </div>
@@ -161,11 +198,16 @@ export default function DatasetPicker({ onReady }) {
         </div>
 
         {uploadError && (
-          <div className="mt-3 flex items-center gap-2 rounded-lg border border-crit-500/30 bg-crit-500/10 p-3 text-sm text-crit-500">
-            <AlertCircle size={16} /> {uploadError}
-          </div>
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25 }}
+            className="mt-3 flex items-center gap-2 rounded-lg border border-crit-500/30 bg-crit-500/10 p-3 text-sm text-crit-500"
+          >
+            <AlertCircle size={16} className="shrink-0" /> {uploadError}
+          </motion.div>
         )}
-      </section>
+      </motion.section>
     </div>
   );
 }

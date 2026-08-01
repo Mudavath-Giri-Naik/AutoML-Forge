@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { predict } from "../api/training";
 import { getErrorMessage } from "../api/client";
@@ -109,10 +110,17 @@ export default function WhatIfPlayground({ job, metadata }) {
         ))}
       </div>
 
-      <div className="flex flex-col items-center justify-center rounded-xl border border-forge-800 bg-forge-900 p-5 text-center">
-        <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-ember-500/10 text-ember-400 ring-1 ring-inset ring-ember-500/20">
+      <motion.div
+        layout
+        className="flex flex-col items-center justify-center rounded-xl border border-forge-800 bg-forge-900 p-5 text-center"
+      >
+        <motion.span
+          animate={loading ? { rotate: [0, 8, -8, 0] } : { rotate: 0 }}
+          transition={{ duration: 0.4 }}
+          className="mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-ember-500/10 text-ember-400 ring-1 ring-inset ring-ember-500/20"
+        >
           <Sparkles size={18} />
-        </span>
+        </motion.span>
         <p className="mb-1 text-xs uppercase tracking-wide text-forge-500">Predicted {job.target_column}</p>
         {loading ? (
           <Loader2 size={20} className="animate-spin text-forge-400" />
@@ -121,19 +129,36 @@ export default function WhatIfPlayground({ job, metadata }) {
             <AlertCircle size={14} /> {error}
           </div>
         ) : (
-          <p className="text-2xl font-bold text-forge-50">{String(prediction?.prediction)}</p>
+          <motion.p
+            key={String(prediction?.prediction)}
+            initial={{ opacity: 0, y: 6, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.25 }}
+            className="text-2xl font-bold text-forge-50"
+          >
+            {String(prediction?.prediction)}
+          </motion.p>
         )}
         {prediction?.probabilities && (
-          <div className="mt-3 w-full space-y-1 border-t border-forge-800 pt-3 text-left">
+          <div className="mt-3 w-full space-y-1.5 border-t border-forge-800 pt-3 text-left">
             {Object.entries(prediction.probabilities).map(([cls, p]) => (
-              <div key={cls} className="flex items-center justify-between text-xs">
-                <span className="text-forge-400">{cls}</span>
-                <span className="font-mono text-forge-200">{(p * 100).toFixed(1)}%</span>
+              <div key={cls} className="text-xs">
+                <div className="mb-0.5 flex items-center justify-between">
+                  <span className="text-forge-400">{cls}</span>
+                  <span className="font-mono text-forge-200">{(p * 100).toFixed(1)}%</span>
+                </div>
+                <div className="h-1 overflow-hidden rounded-full bg-forge-800">
+                  <motion.div
+                    className="h-full rounded-full bg-ember-500/70"
+                    animate={{ width: `${p * 100}%` }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                  />
+                </div>
               </div>
             ))}
           </div>
         )}
-      </div>
+      </motion.div>
 
       {hidden.length > 0 && (
         <p className="text-xs text-forge-600 lg:col-span-2">
